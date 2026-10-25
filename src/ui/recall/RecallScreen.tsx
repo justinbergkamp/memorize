@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { displayCard, rankOf, suitColor, suitOf, type Rank, type Suit } from '@domain/cards';
 import { makeCardId, median } from '@domain/recall';
 import { useConfigStore } from '@store/configStore';
@@ -9,6 +9,9 @@ import { CardPicker } from './CardPicker';
 const ROLE_LABEL = { P: 'Person', A: 'Action', O: 'Object' } as const;
 const ROLE_FIELD = { P: 'person', A: 'action', O: 'object' } as const;
 const CORRECT_FLASH_MS = 700;
+const TERM_MAX_PX = 30;
+const TERM_MIN_PX = 12;
+const TIME_SLOT_PX = 60;
 const MISS_SHOW_MS = 1800; // long enough to read the right card; tap the prompt to skip
 
 export function RecallScreen() {
@@ -91,11 +94,11 @@ export function RecallScreen() {
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '4px 0' }}>
           {/* time sits right of the term; reserved width keeps the term from reflowing when it appears */}
-          <div style={{ width: 72 }} />
-          <div style={{ flex: 1, fontFamily: 'var(--font-rank)', fontSize: 30, wordBreak: 'break-word' }}>{text}</div>
+          <div style={{ width: TIME_SLOT_PX }} />
+          <FitTerm text={text} />
           <div
             className="mono"
-            style={{ width: 72, textAlign: 'right', fontSize: 18, color: result?.correct ? 'var(--brass)' : 'var(--carmine)', visibility: result ? 'visible' : 'hidden' }}
+            style={{ width: TIME_SLOT_PX, textAlign: 'right', fontSize: 16, color: result?.correct ? 'var(--brass)' : 'var(--carmine)', visibility: result ? 'visible' : 'hidden' }}
           >
             {result ? fmt(result.latencyMs) : '0.00s'}
           </div>
@@ -103,6 +106,38 @@ export function RecallScreen() {
       </div>
 
       <CardPicker suit={suit} rank={rank} disabled={!!result} onSuit={pickSuit} onRank={pickRank} />
+    </div>
+  );
+}
+
+/** Single-line term that shrinks (down to TERM_MIN_PX) until it fits the available width. */
+function FitTerm({ text }: { text: string }) {
+  const ref = useRef<HTMLDivElement>(null);
+
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    function fit() {
+      if (!el) return;
+      let size = TERM_MAX_PX;
+      el.style.fontSize = `${size}px`;
+      while (el.scrollWidth > el.clientWidth && size > TERM_MIN_PX) {
+        size -= 1;
+        el.style.fontSize = `${size}px`;
+      }
+    }
+    fit();
+    document.fonts?.ready.then(fit); // web font may land after first measure
+    window.addEventListener('resize', fit);
+    return () => window.removeEventListener('resize', fit);
+  }, [text]);
+
+  return (
+    <div
+      ref={ref}
+      style={{ flex: 1, minWidth: 0, fontFamily: 'var(--font-rank)', fontSize: TERM_MAX_PX, whiteSpace: 'nowrap', overflow: 'hidden' }}
+    >
+      {text}
     </div>
   );
 }
