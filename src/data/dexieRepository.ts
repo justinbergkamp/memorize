@@ -1,6 +1,7 @@
 import { fullDeck, type CardId } from '@domain/cards';
 import type { MemorizeEvent, QuizEvent, RunHeader, RunRollup, RunStatus, SceneEvent } from '@domain/events';
 import type { FsrsCardState } from '@domain/fsrsScheduler';
+import type { RecallEvent } from '@domain/recall';
 import { CONFIG_SCHEMA_VERSION, db, type PaoEntry } from './db';
 import type { ConfigExport, FullExport, PaoRepository, PaoText, RunEvents } from './repository';
 
@@ -86,8 +87,25 @@ export class DexieRepository implements PaoRepository {
     return { memorize, scene, quiz };
   }
 
+  async deleteRun(runId: string): Promise<void> {
+    await db.transaction('rw', [db.runs, db.memorizeEvents, db.sceneEvents, db.quizEvents], async () => {
+      await db.runs.delete(runId);
+      await db.memorizeEvents.where('run_id').equals(runId).delete();
+      await db.sceneEvents.where('run_id').equals(runId).delete();
+      await db.quizEvents.where('run_id').equals(runId).delete();
+    });
+  }
+
   async getAllQuizEvents(): Promise<QuizEvent[]> {
     return db.quizEvents.toArray();
+  }
+
+  async appendRecallEvent(event: RecallEvent): Promise<void> {
+    await db.recallEvents.add(event);
+  }
+
+  async getAllRecallEvents(): Promise<RecallEvent[]> {
+    return db.recallEvents.toArray();
   }
 
   async getLatencyWindow(): Promise<number[]> {
@@ -109,12 +127,13 @@ export class DexieRepository implements PaoRepository {
   }
 
   async exportAll(): Promise<FullExport> {
-    const [config, runs, memorize_events, scene_events, quiz_events] = await Promise.all([
+    const [config, runs, memorize_events, scene_events, quiz_events, recall_events] = await Promise.all([
       this.exportConfig(),
       db.runs.toArray(),
       db.memorizeEvents.toArray(),
       db.sceneEvents.toArray(),
       db.quizEvents.toArray(),
+      db.recallEvents.toArray(),
     ]);
     return {
       schema_version: CONFIG_SCHEMA_VERSION,
@@ -124,6 +143,7 @@ export class DexieRepository implements PaoRepository {
       memorize_events,
       scene_events,
       quiz_events,
+      recall_events,
     };
   }
 
@@ -133,13 +153,14 @@ export class DexieRepository implements PaoRepository {
     }
     await db.transaction(
       'rw',
-      [db.pao, db.runs, db.memorizeEvents, db.sceneEvents, db.quizEvents],
+      [db.pao, db.runs, db.memorizeEvents, db.sceneEvents, db.quizEvents, db.recallEvents],
       async () => {
         await this.importConfig(data.config);
         await db.runs.bulkPut(data.runs);
         await db.memorizeEvents.bulkPut(data.memorize_events);
         await db.sceneEvents.bulkPut(data.scene_events);
         await db.quizEvents.bulkPut(data.quiz_events);
+        if (data.recall_events) await db.recallEvents.bulkPut(data.recall_events);
       },
     );
   }
