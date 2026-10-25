@@ -28,11 +28,21 @@ export function RecallScreen() {
     };
   }, [start, reset]);
 
-  // Both halves chosen -> commit. Order doesn't matter, and either half can be re-picked before the second.
-  useEffect(() => {
-    if (!suit || !rank || result) return;
-    submit(makeCardId(rank, suit));
-  }, [suit, rank, result, submit]);
+  // Both halves chosen -> commit. Submitted from the tap handlers (not an effect) so a stale
+  // suit/rank can never be paired with the next term while advance() is clearing them.
+  function pickSuit(v: Suit) {
+    if (result) return;
+    markInput();
+    setSuit(v);
+    if (rank) submit(makeCardId(rank, v));
+  }
+
+  function pickRank(v: Rank) {
+    if (result) return;
+    markInput();
+    setRank(v);
+    if (suit) submit(makeCardId(v, suit));
+  }
 
   function advance() {
     clearTimeout(advanceTimer.current);
@@ -65,30 +75,34 @@ export function RecallScreen() {
         onClick={result ? advance : undefined}
         style={{
           textAlign: 'center',
-          padding: '14px 8px',
+          padding: '12px 8px',
           borderRadius: 12,
           background: 'var(--felt-raised)',
           border: `1px solid ${result ? (result.correct ? 'var(--brass)' : 'var(--carmine)') : 'rgba(239,231,214,0.12)'}`,
         }}
       >
-        <div style={{ fontSize: 12, color: 'var(--slate)', textTransform: 'uppercase', letterSpacing: 1 }}>
-          {ROLE_LABEL[item.role]}
+        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: 'var(--slate)' }}>
+          <span style={{ textTransform: 'uppercase', letterSpacing: 1 }}>{ROLE_LABEL[item.role]}</span>
+          {result && !result.correct && (
+            <span style={{ fontSize: 13 }}>
+              <CardText card={result.answer} /> → <CardText card={result.expected} />
+            </span>
+          )}
         </div>
-        <div style={{ fontFamily: 'var(--font-rank)', fontSize: 30, margin: '4px 0', wordBreak: 'break-word' }}>{text}</div>
-        {result && (
-          <div className="mono" style={{ fontSize: 22, color: result.correct ? 'var(--brass)' : 'var(--carmine)' }}>
-            {fmt(result.latencyMs)}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '4px 0' }}>
+          {/* time sits right of the term; reserved width keeps the term from reflowing when it appears */}
+          <div style={{ width: 72 }} />
+          <div style={{ flex: 1, fontFamily: 'var(--font-rank)', fontSize: 30, wordBreak: 'break-word' }}>{text}</div>
+          <div
+            className="mono"
+            style={{ width: 72, textAlign: 'right', fontSize: 18, color: result?.correct ? 'var(--brass)' : 'var(--carmine)', visibility: result ? 'visible' : 'hidden' }}
+          >
+            {result ? fmt(result.latencyMs) : '0.00s'}
           </div>
-        )}
-        {result && !result.correct && (
-          <div style={{ fontSize: 14, color: 'var(--slate)' }}>
-            You picked <CardText card={result.answer} /> · it was <CardText card={result.expected} />
-          </div>
-        )}
+        </div>
       </div>
 
-      <CardPicker suit={suit} rank={rank} disabled={!!result} onSuit={(v) => { markInput(); setSuit(v); }} onRank={(v) => { markInput(); setRank(v); }} />
-
+      <CardPicker suit={suit} rank={rank} disabled={!!result} onSuit={pickSuit} onRank={pickRank} />
     </div>
   );
 }
