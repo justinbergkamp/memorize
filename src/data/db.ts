@@ -2,6 +2,7 @@ import Dexie, { type Table } from 'dexie';
 import type { CardId } from '@domain/cards';
 import type { MemorizeEvent, QuizEvent, RunHeader, SceneEvent } from '@domain/events';
 import type { FsrsCardState } from '@domain/fsrsScheduler';
+import type { RecallEvent } from '@domain/recall';
 
 export type PaoEntry = {
   card: CardId; // primary key
@@ -33,6 +34,7 @@ class PaoDatabase extends Dexie {
   quizEvents!: Table<QuizEvent, number>;
   settings!: Table<AppSettings, string>;
   fsrsCards!: Table<FsrsCardRow, string>;
+  recallEvents!: Table<RecallEvent, number>;
 
   constructor() {
     super('pao-card-trainer');
@@ -44,6 +46,9 @@ class PaoDatabase extends Dexie {
       quizEvents: '++id, run_id, sequence_index, card, role, scored, committed_at',
       settings: 'id',
       fsrsCards: 'key',
+    });
+    this.version(2).stores({
+      recallEvents: '++id, session_id, sequence_index, card, role, answered_at',
     });
   }
 }

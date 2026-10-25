@@ -5,12 +5,13 @@ import { useConfigStore } from '@store/configStore';
 import { BuildScreen } from '@ui/build/BuildScreen';
 import { TrainConfigScreen } from '@ui/train/TrainConfigScreen';
 import { TrainRunScreen } from '@ui/train/TrainRunScreen';
+import { RecallScreen } from '@ui/recall/RecallScreen';
 import { AnalyzeScreen } from '@ui/analyze/AnalyzeScreen';
 import { RunDetailScreen } from '@ui/analyze/RunDetailScreen';
 import { InstallPrompt } from '@ui/components/InstallPrompt';
 import { useTrainStore } from '@store/trainStore';
 
-type Screen = 'home' | 'build' | 'train-config' | 'analyze' | { view: 'run-detail'; runId: string };
+type Screen = 'home' | 'build' | 'train-config' | 'recall' | 'analyze' | { view: 'run-detail'; runId: string };
 
 export function App() {
   const [screen, setScreen] = useState<Screen>('home');
@@ -28,11 +29,12 @@ export function App() {
   }
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', minHeight: '100dvh' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100dvh', overflow: 'hidden' }}>
       <main style={{ flex: 1, overflowY: 'auto' }}>
         {screen === 'home' && <HomeScreen filled={filled} onNavigate={setScreen} />}
         {screen === 'build' && <BuildScreen />}
         {screen === 'train-config' && <TrainConfigScreen />}
+        {screen === 'recall' && <RecallScreen />}
         {screen === 'analyze' && (
           <AnalyzeScreen onOpenRun={(runId) => setScreen({ view: 'run-detail', runId })} />
         )}
@@ -52,6 +54,7 @@ export function App() {
           <NavButton label="Home" active={screen === 'home'} onClick={() => setScreen('home')} />
           <NavButton label="Build" active={screen === 'build'} onClick={() => setScreen('build')} />
           <NavButton label="Train" active={screen === 'train-config'} onClick={() => setScreen('train-config')} />
+          <NavButton label="Recall" active={screen === 'recall'} onClick={() => setScreen('recall')} />
           <NavButton label="Analyze" active={screen === 'analyze'} onClick={() => setScreen('analyze')} />
         </nav>
       )}
@@ -133,6 +136,16 @@ function HomeScreen({
           <strong>Train</strong>
           <span style={{ color: 'var(--slate)', fontSize: 13 }}>
             {gateOpen ? 'Ready' : 'Complete Build first'}
+          </span>
+        </button>
+        <button
+          onClick={() => gateOpen && onNavigate('recall')}
+          style={{ ...cardButtonStyle, opacity: gateOpen ? 1 : 0.5 }}
+          disabled={!gateOpen}
+        >
+          <strong>Recall</strong>
+          <span style={{ color: 'var(--slate)', fontSize: 13 }}>
+            {gateOpen ? 'See a Person, Action or Object, name the card' : 'Complete Build first'}
           </span>
         </button>
         <button onClick={() => onNavigate('analyze')} style={cardButtonStyle}>

@@ -1,6 +1,7 @@
 import type { CardId } from '@domain/cards';
 import type { MemorizeEvent, QuizEvent, RunHeader, RunRollup, RunStatus, SceneEvent } from '@domain/events';
 import type { FsrsCardState } from '@domain/fsrsScheduler';
+import type { RecallEvent } from '@domain/recall';
 import type { PaoEntry } from './db';
 
 export type PaoText = { person: string; action: string; object: string };
@@ -18,6 +19,7 @@ export type FullExport = {
   memorize_events: MemorizeEvent[];
   scene_events: SceneEvent[];
   quiz_events: QuizEvent[];
+  recall_events?: RecallEvent[]; // absent in backups made before the Recall mode
 };
 
 export type RunEvents = {
@@ -46,7 +48,11 @@ export interface PaoRepository {
   listRuns(): Promise<RunHeader[]>;
   getRun(runId: string): Promise<RunHeader | undefined>;
   getRunEvents(runId: string): Promise<RunEvents>;
+  deleteRun(runId: string): Promise<void>;
   getAllQuizEvents(): Promise<QuizEvent[]>;
+
+  appendRecallEvent(event: RecallEvent): Promise<void>;
+  getAllRecallEvents(): Promise<RecallEvent[]>;
 
   getLatencyWindow(): Promise<number[]>;
   setLatencyWindow(window: number[]): Promise<void>;
