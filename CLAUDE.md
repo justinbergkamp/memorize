@@ -5,6 +5,7 @@
 - Node 20+ required. `workbox-build` 6.x is pinned via `overrides` because 7.x pulls in `glob@11 → path-scurry@2 → lru-cache@11`, which requires `diagnostics_channel.tracingChannel` (Node 22+).
 - `npm run build` — TypeScript compile then Vite production build. Produces an installable PWA in `dist/`.
 - `npm test` — Vitest, domain tests only (`src/domain/**/*.test.ts`). All domain logic must be testable without a browser or database.
+- `/domain` may import pure-JS libraries (currently only `ts-fsrs`), never React, Dexie, Zustand or other UI/storage libraries.
 
 ## Architecture — do not violate the layer boundary
 
@@ -50,12 +51,23 @@ A `blank` at position 0 collapses the triplet: positions 1 and 2 are auto-graded
 
 The data model has no concept of memory palace loci. The palace is implicit — it lives in the user's head. Never add loci fields to events, cards, or UI. On a quiz miss, the app reveals the card and moves on. No hint UI.
 
+## Recall mode (post-spec addition)
+
+Reverse drill: show a P/A/O, the user names the card. Lives under the Train tab (Run | Recall toggle) with stats under Analyze → Recall. Implemented in `@domain/recall`, `@store/recallStore`, `@ui/recall`.
+
+**`RecallEvent` is deliberately separate from `QuizEvent`.** Text→card is a different retrieval path from card→text, so recall events never feed the `(card, role)` difficulty scorer or FSRS. It has its own Dexie table (`recallEvents`); backups made before Recall omit `recall_events`, so import must tolerate its absence. Item selection is weighted by recall timing once there is enough data, plain shuffle before that.
+
 ## Milestones
 
-M0 ✓ Scaffold + domain (current)  
-M1 — Build screen (PAO config table, import/export)  
-M2 — Memorize phase  
-M3 — Quiz phase (contamination, rollup)  
-M4 — Analyze (run list, run detail)  
-M5 — Difficulty and FSRS scheduling  
-M6 — PWA polish, Capacitor scaffold
+The full spec is `docs/pao-train-spec.md` (section numbers like §7.4 refer to it).
+
+M0 ✓ Scaffold + domain  
+M1 ✓ Build screen (PAO config table, config import/export; full-backup import/export from the home screen)  
+M2 ✓ Memorize phase  
+M3 ✓ Quiz phase (contamination, rollup)  
+M4 ✓ Analyze (run list, run detail, weakest items)  
+M5 ✓ Difficulty scorer and FSRS scheduling (`@domain/scorer`, `@domain/fsrsScheduler`). v1 samples on difficulty only; due-ness is maintained per item but not yet used for a "Review" set.  
+M6 — PWA is installable (vite-plugin-pwa, autoUpdate, install prompt). **Not started:** Capacitor scaffold; PWA polish is ongoing.  
+Post-spec ✓ Recall mode (see above)
+
+Known gaps: `RunHeader.rollup` is still read directly by `AnalyzeScreen` and `RunDetailScreen` for display (should be recomputed from events); `src/store` and `src/ui` have no tests.
