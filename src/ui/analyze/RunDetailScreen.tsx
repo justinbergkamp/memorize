@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import type { RunHeader, SceneEvent, QuizEvent } from '@domain/events';
 import { displayCard } from '@domain/cards';
 import { repository } from '@data/dexieRepository';
+import { BotchedToggle } from '@ui/components/BotchedToggle';
 
 type Detail = { header: RunHeader; memorizeCount: number; scene: SceneEvent[]; quiz: QuizEvent[] };
 
@@ -45,6 +46,15 @@ export function RunDetailScreen({ runId, onBack }: { runId: string; onBack: () =
         <StatCard label="Memorize" value={rollup ? `${Math.round(rollup.memorize_ms / 1000)}s` : '—'} />
         <StatCard label="Quiz" value={rollup ? `${Math.round(rollup.quiz_ms / 1000)}s` : '—'} />
       </div>
+
+      {header.progression && (
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 20, flexWrap: 'wrap' }}>
+          <span className="mono" style={{ fontSize: 13, color: header.progression.clean ? 'var(--brass)' : 'var(--slate)' }}>
+            Progression · {header.progression.interval_s.toFixed(1)}s per triplet · {header.progression.clean ? 'clean' : 'not clean'}
+          </span>
+          {header.status === 'complete' && <BotchedToggle runId={header.id} />}
+        </div>
+      )}
 
       {rollup && header.params.quizzed && (
         <div style={{ display: 'flex', gap: 16, marginBottom: 24, fontSize: 13 }}>

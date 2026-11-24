@@ -1,6 +1,7 @@
 import { fullDeck, type CardId } from '@domain/cards';
 import type { MemorizeEvent, QuizEvent, RunHeader, RunRollup, RunStatus, SceneEvent } from '@domain/events';
 import type { FsrsCardState } from '@domain/fsrsScheduler';
+import type { ProgressionRecord } from '@domain/progression';
 import type { RecallEvent } from '@domain/recall';
 import { CONFIG_SCHEMA_VERSION, db, type PaoEntry } from './db';
 import type { ConfigExport, FullExport, PaoRepository, PaoText, RunEvents } from './repository';
@@ -65,8 +66,18 @@ export class DexieRepository implements PaoRepository {
     await db.quizEvents.add(event);
   }
 
-  async closeRun(runId: string, status: RunStatus, ended_at: number, rollup?: RunRollup): Promise<void> {
-    await db.runs.update(runId, { status, ended_at, rollup });
+  async closeRun(
+    runId: string,
+    status: RunStatus,
+    ended_at: number,
+    rollup?: RunRollup,
+    progression?: ProgressionRecord,
+  ): Promise<void> {
+    await db.runs.update(runId, progression ? { status, ended_at, rollup, progression } : { status, ended_at, rollup });
+  }
+
+  async setRunExcluded(runId: string, excluded: boolean): Promise<void> {
+    await db.runs.update(runId, { excluded });
   }
 
   async listRuns(): Promise<RunHeader[]> {

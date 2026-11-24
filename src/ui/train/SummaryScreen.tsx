@@ -1,7 +1,8 @@
+import { BotchedToggle } from '@ui/components/BotchedToggle';
 import { useTrainStore } from '@store/trainStore';
 
 export function SummaryScreen({ onExit }: { onExit: () => void }) {
-  const { header, summaryRollup, reset } = useTrainStore();
+  const { header, summaryRollup, summaryProgression, reset } = useTrainStore();
   if (!header || !summaryRollup) return null;
 
   const pct = summaryRollup.n_cards > 0 ? Math.round((summaryRollup.n_correct / summaryRollup.n_cards) * 100) : null;
@@ -38,6 +39,15 @@ export function SummaryScreen({ onExit }: { onExit: () => void }) {
           <Stat label="Correct" value={summaryRollup.n_correct} color="var(--brass)" />
           <Stat label="Wrong card" value={summaryRollup.n_wrong_card} color="var(--carmine)" />
           <Stat label="Blank" value={summaryRollup.n_blank} color="var(--slate)" />
+        </div>
+      )}
+      {summaryProgression && (
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10 }}>
+          <div className="mono" style={{ fontSize: 15, color: summaryProgression.clean ? 'var(--brass)' : 'var(--slate)' }}>
+            {summaryProgression.clean ? 'Clean run' : 'Not clean'} · {summaryProgression.interval_s.toFixed(1)}s →{' '}
+            {summaryProgression.next_interval_s.toFixed(1)}s per triplet
+          </div>
+          <BotchedToggle runId={header.id} />
         </div>
       )}
       <button

@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { PROGRESSION_FLOOR_S, PROGRESSION_STEP_S, progressionParams } from '@domain/progression';
 import {
   DEFAULT_TIMED_MS,
   PRESETS,
@@ -9,6 +10,7 @@ import {
   type RunParams,
   type SetMode,
 } from '@domain/runParams';
+import { getProgressionInterval } from '@store/progressionStore';
 import { getDifficultSetUnlocked } from '@store/scoringStore';
 import { useTrainStore } from '@store/trainStore';
 
@@ -19,11 +21,15 @@ export function TrainConfigScreen() {
   const [isPractice, setIsPractice] = useState(false);
   const [showGrid, setShowGrid] = useState(false);
   const [difficultUnlocked, setDifficultUnlocked] = useState(false);
+  // §X — Progression mode: a preset whose per-triplet interval is derived from run history.
+  const [progression, setProgression] = useState(false);
+  const [progressionInterval, setProgressionInterval] = useState<number | null>(null);
   const startRun = useTrainStore((s) => s.startRun);
   const [starting, setStarting] = useState(false);
 
   useEffect(() => {
     getDifficultSetUnlocked().then(setDifficultUnlocked);
+    getProgressionInterval().then(setProgressionInterval);
   }, []);
 
   const validation = validateParams(params, difficultUnlocked);
@@ -32,17 +38,26 @@ export function TrainConfigScreen() {
     const preset = PRESETS[index];
     setParams(preset.params);
     setIsPractice(preset.isPractice);
+    setProgression(false);
+  }
+
+  function applyProgression() {
+    if (progressionInterval === null) return;
+    setParams(progressionParams(progressionInterval));
+    setIsPractice(false);
+    setProgression(true);
   }
 
   function patch(next: Partial<RunParams>) {
     setParams((p) => ({ ...p, ...next }));
     setIsPractice(false);
+    setProgression(false);
   }
 
   async function handleStart() {
     if (!validation.valid) return;
     setStarting(true);
-    await startRun(params, isPractice);
+    await startRun(params, isPractice, { progression });
   }
 
   return (
@@ -56,13 +71,39 @@ export function TrainConfigScreen() {
             onClick={() => applyPreset(i)}
             style={{
               ...presetButtonStyle,
-              borderColor: samePresetSelected(params, isPractice, preset) ? 'var(--brass)' : 'rgba(239,231,214,0.16)',
+              borderColor: !progression && samePresetSelected(params, isPractice, preset) ? 'var(--brass)' : 'rgba(239,231,214,0.16)',
             }}
           >
             {preset.name}
           </button>
         ))}
       </div>
+
+      <button
+        onClick={applyProgression}
+        disabled={progressionInterval === null}
+        style={{
+          ...presetButtonStyle,
+          width: '100%',
+          marginBottom: 16,
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          textAlign: 'left',
+          borderColor: progression ? 'var(--brass)' : 'rgba(239,231,214,0.16)',
+        }}
+      >
+        <span>
+          Progression
+          <span style={{ display: 'block', fontSize: 11, color: 'var(--slate)', fontWeight: 400, marginTop: 2 }}>
+            52 cards · timed · quizzed · −{PROGRESSION_STEP_S}s after each clean run (floor {PROGRESSION_FLOOR_S.toFixed(1)}s)
+          </span>
+        </span>
+        <span className="mono" style={{ fontSize: 22, color: 'var(--brass)', fontWeight: 700, whiteSpace: 'nowrap' }}>
+          {progressionInterval !== null ? `${progressionInterval.toFixed(1)}s` : '—'}
+          <span style={{ fontSize: 11, color: 'var(--slate)', fontWeight: 400 }}> /triplet</span>
+        </span>
+      </button>
 
       <button onClick={() => setShowGrid((v) => !v)} style={{ ...buttonStyle, marginBottom: 12 }}>
         {showGrid ? 'Hide' : 'Show'} custom parameters

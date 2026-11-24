@@ -1,20 +1,20 @@
-import { useEffect, useMemo, useState } from 'react';
-import { motion, useMotionValue } from 'framer-motion';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { animate, motion, useMotionValue } from 'framer-motion';
 import type { Outcome } from '@domain/events';
 import { computeMemorizeTicks, computeQuizTicks, type TickState } from '@domain/ribbon';
 import { useConfigStore } from '@store/configStore';
 import { useTrainStore } from '@store/trainStore';
 import { BigCard } from '@ui/components/BigCard';
 import { RunRibbon } from '@ui/components/RunRibbon';
+import { useCardGesture } from '@ui/hooks/useCardGesture';
 import { useWakeLock } from '@ui/hooks/useWakeLock';
 import { SummaryScreen } from './SummaryScreen';
 
 const ROLE_LABEL = { P: 'Person', A: 'Action', O: 'Object' } as const;
-const SWIPE_THRESHOLD = 100;
 
 export function TrainRunScreen({ onExit }: { onExit: () => void }) {
   const state = useTrainStore();
-  const { phase, header, currentUnit, quizSlots, quizIndex, quizRevealed, quizEvents } = state;
+  const { phase, header, currentUnit, quizSlots, quizIndex, quizRevealed, quizEvents, quizUnitShownAt, unitShownAt } = state;
   const entries = useConfigStore((s) => s.entries);
   const [now, setNow] = useState(Date.now());
 
@@ -41,6 +41,24 @@ export function TrainRunScreen({ onExit }: { onExit: () => void }) {
     const id = setTimeout(() => useTrainStore.getState().advanceMemorize(), ms);
     return () => clearTimeout(id);
   }, [phase, header, currentUnit]);
+
+  // §X — Progression quiz timer: position 0 of each triplet (or the lone card) must be graded within
+  // the interval, or the whole triplet counts as blank. `quizUnitShownAt` is null once position 0 is graded.
+  const quizTimerMs = header?.progression ? header.params.timed_ms ?? null : null;
+  useEffect(() => {
+    if (phase !== 'quiz' || quizTimerMs === null || quizUnitShownAt === null) return;
+    const left = Math.max(0, quizUnitShownAt + quizTimerMs - Date.now());
+    const id = setTimeout(() => useTrainStore.getState().expireQuizUnit(), left);
+    return () => clearTimeout(id);
+  }, [phase, quizTimerMs, quizUnitShownAt]);
+
+  // Countdown bar for whichever timer is running. Keyed on the unit start so each unit restarts it.
+  const countdown =
+    phase === 'memorize' && header?.params.advance === 'timed' && unitShownAt !== null
+      ? { key: `m${unitShownAt}`, from: unitShownAt, ms: header.params.timed_ms ?? 3000 }
+      : phase === 'quiz' && quizTimerMs !== null && quizUnitShownAt !== null
+        ? { key: `q${quizUnitShownAt}`, from: quizUnitShownAt, ms: quizTimerMs }
+        : null;
 
   const boundedTotal = header && header.params.count !== 'unlimited' ? quizSlots.length : null;
 
@@ -78,6 +96,20 @@ export function TrainRunScreen({ onExit }: { onExit: () => void }) {
         ) : (
           <div style={{ height: 4 }} />
         )}
+        <div style={{ height: 3, marginTop: 6, background: 'rgba(239,231,214,0.08)', borderRadius: 2, overflow: 'hidden' }}>
+          {countdown && (
+            <div
+              key={countdown.key}
+              style={{
+                height: '100%',
+                background: 'var(--brass)',
+                transformOrigin: 'left',
+                animation: `unit-countdown ${countdown.ms}ms linear forwards`,
+                animationDelay: `${Math.min(0, countdown.from - Date.now())}ms`,
+              }}
+            />
+          )}
+        </div>
         <div
           className="mono"
           style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 8, fontSize: 13, color: 'var(--slate)' }}
@@ -155,6 +187,15 @@ function roleField(role: 'P' | 'A' | 'O'): 'person' | 'action' | 'object' {
   return role === 'P' ? 'person' : role === 'A' ? 'action' : 'object';
 }
 
+const FLY_DISTANCE = 600;
+const FLY_MS = 0.2;
+
+const GRADE_BUTTONS: { outcome: Outcome; label: string; hint: string; color: string }[] = [
+  { outcome: 'blank', label: 'Blank', hint: '←', color: 'var(--slate)' },
+  { outcome: 'correct', label: 'Correct', hint: '↑ ↓', color: 'var(--brass)' },
+  { outcome: 'wrong_card', label: 'Wrong card', hint: '→', color: 'var(--carmine)' },
+];
+
 function QuizPane({
   slot,
   revealed,
@@ -162,13 +203,23 @@ function QuizPane({
   slot: ReturnType<typeof useTrainStore.getState>['quizSlots'][number];
   revealed: boolean;
 }) {
-  const x = useMotionValue(0);
-  const y = useMotionValue(0);
+  const opacity = useMotionValue(1);
   const [flying, setFlying] = useState<Outcome | null>(null);
+  // Single-flight lock: a swipe and a button tap (or two taps) must never grade the same card twice.
+  const gradingRef = useRef(false);
 
+  const gesture = useCardGesture({
+    enabled: revealed && !flying,
+    grading: flying !== null,
+    onCommit: (outcome, from) => commit(outcome, from.y >= 0 ? 1 : -1),
+  });
+  const { x, y } = gesture;
+
+  // New card: everything back to a clean slate.
   useEffect(() => {
-    x.set(0);
-    y.set(0);
+    gesture.reset();
+    opacity.set(1);
+    gradingRef.current = false;
     setFlying(null);
   }, [slot]);
 
@@ -178,28 +229,40 @@ function QuizPane({
     useTrainStore.getState().revealCurrentQuizCard();
   }
 
-  function commit(outcome: Outcome) {
+  async function commit(outcome: Outcome, verticalDir: 1 | -1 = -1) {
+    if (gradingRef.current) return;
+    gradingRef.current = true;
+    gesture.cancel(); // drop any pointer still held (e.g. a button tapped mid-drag)
     setFlying(outcome);
-    useTrainStore.getState().gradeCurrentQuizCard(outcome);
-  }
 
-  function handleDragEnd(_: unknown, info: { offset: { x: number; y: number } }) {
-    const { x: ox, y: oy } = info.offset;
-    if (Math.abs(oy) > Math.abs(ox) && Math.abs(oy) > SWIPE_THRESHOLD) {
-      commit('correct');
-    } else if (ox < -SWIPE_THRESHOLD) {
-      commit('blank');
-    } else if (ox > SWIPE_THRESHOLD) {
-      commit('wrong_card');
+    const target = {
+      x: outcome === 'blank' ? -FLY_DISTANCE : outcome === 'wrong_card' ? FLY_DISTANCE : 0,
+      y: outcome === 'correct' ? verticalDir * FLY_DISTANCE : 0,
+    };
+    animate(x, target.x, { duration: FLY_MS });
+    animate(y, target.y, { duration: FLY_MS });
+    animate(opacity, 0, { duration: FLY_MS });
+
+    const indexAtCommit = useTrainStore.getState().quizIndex;
+    try {
+      await useTrainStore.getState().gradeCurrentQuizCard(outcome);
+    } catch {
+      // fall through to the recovery check below
+    }
+
+    // If the store did not move on (refused the grade, or a write failed), the card is still the
+    // current one. Bring it back instead of leaving an invisible card and a soft-locked run.
+    const s = useTrainStore.getState();
+    if (s.phase === 'quiz' && s.quizIndex === indexAtCommit && s.quizRevealed) {
+      gradingRef.current = false;
+      setFlying(null);
+      opacity.set(1);
+      gesture.springHome();
     }
   }
 
-  const flyOffset: Record<Outcome, { x: number; y: number }> = {
-    correct: { x: 0, y: y.get() < 0 ? -600 : 600 },
-    blank: { x: -600, y: 0 },
-    wrong_card: { x: 600, y: 0 },
-  };
-  const tint = flying === 'correct' ? 'var(--brass)' : flying === 'blank' ? 'var(--slate)' : flying === 'wrong_card' ? 'var(--carmine)' : undefined;
+  const tint =
+    flying === 'correct' ? 'var(--brass)' : flying === 'blank' ? 'var(--slate)' : flying === 'wrong_card' ? 'var(--carmine)' : undefined;
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 16 }}>
@@ -213,22 +276,21 @@ function QuizPane({
           </div>
         ) : (
           <motion.div
-            drag={!flying}
+            {...gesture.handlers}
             style={{
               width: '100%',
               height: '100%',
               x,
               y,
+              opacity,
               touchAction: 'none',
               overscrollBehavior: 'none',
               userSelect: 'none',
-              filter: tint ? `drop-shadow(0 0 0 ${tint})` : undefined,
+              WebkitUserSelect: 'none',
+              cursor: flying ? 'default' : 'grab',
             }}
-            animate={flying ? { x: flyOffset[flying].x, y: flyOffset[flying].y, opacity: 0 } : undefined}
-            transition={{ duration: 0.2 }}
-            onDragEnd={handleDragEnd}
           >
-            <div style={{ position: 'relative', width: '100%', height: '100%' }}>
+            <div style={{ position: 'relative', width: '100%', height: '100%', pointerEvents: 'none' }}>
               <BigCard card={slot.card} />
               {tint && (
                 <div style={{ position: 'absolute', inset: 0, background: tint, opacity: 0.35, borderRadius: 16 }} />
@@ -241,10 +303,39 @@ function QuizPane({
       {!revealed && (
         <div style={{ fontSize: 12, color: 'var(--slate)' }}>Recall it, then tap to reveal</div>
       )}
-      {revealed && !flying && (
-        <div style={{ fontSize: 12, color: 'var(--slate)', textAlign: 'center' }}>
-          ↑ ↓ correct &nbsp;·&nbsp; ← blank &nbsp;·&nbsp; → wrong card
-        </div>
+      {revealed && (
+        <>
+          <div style={{ fontSize: 12, color: 'var(--slate)', textAlign: 'center' }}>
+            Swipe ↑ ↓ correct &nbsp;·&nbsp; ← blank &nbsp;·&nbsp; → wrong card
+          </div>
+          {/* Fallback grading: the run can never soft-lock on a gesture that won't register. */}
+          <div style={{ display: 'flex', gap: 8, width: '100%', maxWidth: 360 }}>
+            {GRADE_BUTTONS.map((b) => (
+              <button
+                key={b.outcome}
+                disabled={flying !== null}
+                onClick={() => commit(b.outcome)}
+                style={{
+                  flex: 1,
+                  background: 'var(--felt-raised)',
+                  border: `1px solid ${b.color}`,
+                  borderRadius: 10,
+                  color: 'var(--stock)',
+                  padding: '12px 4px',
+                  fontSize: 14,
+                  fontWeight: 600,
+                  opacity: flying !== null ? 0.4 : 1,
+                  touchAction: 'manipulation',
+                }}
+              >
+                {b.label}
+                <div className="mono" style={{ fontSize: 11, color: b.color, fontWeight: 400 }}>
+                  {b.hint}
+                </div>
+              </button>
+            ))}
+          </div>
+        </>
       )}
     </div>
   );

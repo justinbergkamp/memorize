@@ -1,4 +1,5 @@
 import type { CardId, Role } from './cards';
+import type { ProgressionRecord } from './progression';
 import type { RunParams } from './runParams';
 
 export type Outcome = 'correct' | 'wrong_card' | 'blank';
@@ -25,6 +26,10 @@ export type RunHeader = {
   weight: number; // difficulty-scoring multiplier (§8.2)
   status: RunStatus;
   rollup?: RunRollup; // cache only, recomputable from events
+  /** §X — set on Progression-mode runs. `clean` is a cache of isCleanRun over the events, written at close. */
+  progression?: ProgressionRecord;
+  /** §X — soft-excluded ("botched"): kept in the data, but never moves the progression interval. */
+  excluded?: boolean;
 };
 
 // One per presentation unit in the memorize phase.
@@ -62,4 +67,5 @@ export type QuizEvent = {
   fsrs_grade: 1 | 2 | 3 | 4; // derived, stored (§7.3)
   scored: boolean; // false when contaminated (§7.4)
   grading: 'self'; // reserved for a future 'entered' mode
+  timed_out?: true; // §X — graded blank by the per-triplet timer, not by the user
 };

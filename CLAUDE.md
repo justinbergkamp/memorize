@@ -57,6 +57,14 @@ Reverse drill: show a P/A/O, the user names the card. Lives under the Train tab 
 
 **`RecallEvent` is deliberately separate from `QuizEvent`.** Text→card is a different retrieval path from card→text, so recall events never feed the `(card, role)` difficulty scorer or FSRS. It has its own Dexie table (`recallEvents`); backups made before Recall omit `recall_events`, so import must tolerate its absence. Item selection is weighted by recall timing once there is enough data, plain shuffle before that.
 
+## Quiz gesture (§Y)
+
+The swipe-to-grade gesture is a pure state machine in `@domain/gesture`; `@ui/hooks/useCardGesture` only feeds it pointer events and projects `state.offset` onto the card. Invariant: **offset is non-zero only while a pointer is held**. Every way a gesture ends (up, pointercancel, touchcancel, lost capture, blur, stale pointer) goes through `gestureReduce`, and only a `commit` result grades. Do not reintroduce framer-motion `drag` on the card: it left the card wherever a sub-threshold release landed and routed `pointercancel` into `onDragEnd` as a release. The three fallback buttons share the same single-flight lock, so the run can never soft-lock.
+
+## Progression mode (§X)
+
+A Train preset (Triplet / 52 / quizzed / timed) whose per-triplet interval is **derived** from run history in `@domain/progression`, never stored as a counter. Each progression run records `RunHeader.progression = { interval_s, clean }`; `clean` is a cache of `isCleanRun` over the events, written at close. Any `blank` or `wrong_card`, including a contaminated (`scored: false`) triplet or a timer expiry, makes a run not clean. The same interval times the memorize display and the quiz: if position 0 of a triplet is not graded in time it is auto-graded `blank` (`QuizEvent.timed_out`) and takes the ordinary §7.4 collapse path. `RunHeader.excluded` soft-excludes a "botched" run: kept, but it never moves the interval (aborted runs are skipped too).
+
 ## Milestones
 
 The full spec is `docs/pao-train-spec.md` (section numbers like §7.4 refer to it).

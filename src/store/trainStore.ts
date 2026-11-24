@@ -6,6 +6,7 @@ import type { MemorizeEvent, Outcome, QuizEvent, RunHeader, RunRollup, SceneEven
 import { computeLatencyZ, deriveFsrsGrade, pushLatency } from '@domain/fsrs';
 import { nextFsrsCardState } from '@domain/fsrsScheduler';
 import { makeRng, newSeed, type Rng } from '@domain/rng';
+import { isCleanRun, nextInterval, progressionParams } from '@domain/progression';
 import type { RunParams } from '@domain/runParams';
 import { resolveCardCount } from '@domain/runParams';
 import {
@@ -18,6 +19,7 @@ import {
 } from '@domain/sampling';
 import { difficultyForSampling, resolveRunWeight } from '@domain/scorer';
 import { repository } from '@data/dexieRepository';
+import { getProgressionInterval } from '@store/progressionStore';
 import { getItemDifficultyMap } from '@store/scoringStore';
 
 export type Phase = 'idle' | 'memorize' | 'quiz' | 'summary';
@@ -41,19 +43,25 @@ type TrainState = {
   quizIndex: number;
   quizRevealed: boolean;
   quizRevealedAt: number | null;
+  /** §X — when the current unit (triplet or lone card) appeared; null once position 0 is graded. Drives the quiz timer. */
+  quizUnitShownAt: number | null;
   sceneEvents: SceneEvent[];
   quizEvents: QuizEvent[];
   tripletScoringByIndex: Map<number, TripletScoring>;
   latencyWindow: number[];
 
   summaryRollup: RunRollup | null;
+  /** §X — outcome of a finished progression run, for the summary screen. */
+  summaryProgression: { interval_s: number; clean: boolean; next_interval_s: number } | null;
 
-  startRun: (params: RunParams, isPractice: boolean) => Promise<void>;
+  startRun: (params: RunParams, isPractice: boolean, opts?: { progression?: boolean }) => Promise<void>;
   advanceMemorize: () => Promise<void>;
   abortRun: () => Promise<void>;
   stopUnlimited: () => Promise<void>;
   revealCurrentQuizCard: () => void;
   gradeCurrentQuizCard: (outcome: Outcome) => Promise<void>;
+  /** §X — the per-triplet timer ran out before position 0 was graded: the whole triplet counts as blank. */
+  expireQuizUnit: () => Promise<void>;
   reset: () => void;
 };
 
@@ -72,17 +80,38 @@ const initialState = {
   quizIndex: 0,
   quizRevealed: false,
   quizRevealedAt: null as number | null,
+  quizUnitShownAt: null as number | null,
   sceneEvents: [] as SceneEvent[],
   quizEvents: [] as QuizEvent[],
   tripletScoringByIndex: new Map<number, TripletScoring>(),
   latencyWindow: [] as number[],
   summaryRollup: null as RunRollup | null,
+  summaryProgression: null as { interval_s: number; clean: boolean; next_interval_s: number } | null,
 };
+
+/** A unit starts at triplet position 0, or is a lone card with no triplet (§2.4). */
+function isUnitStart(slot: Slot | undefined): boolean {
+  return !!slot && (slot.positionInTriplet === 0 || slot.tripletIndex === null);
+}
+
+/** Serializes grading: a swipe, a button tap and a timer expiry must never grade the same card twice. */
+let gradeInFlight = false;
 
 export const useTrainStore = create<TrainState>((set, get) => ({
   ...initialState,
 
-  async startRun(params, isPractice) {
+  async startRun(requestedParams, requestedPractice, opts) {
+    // §X — the interval is derived from history here rather than trusted from the UI, so a stale screen can't skew it.
+    let params = requestedParams;
+    let isPractice = requestedPractice;
+    let progression: RunHeader['progression'];
+    if (opts?.progression) {
+      const interval_s = await getProgressionInterval();
+      params = progressionParams(interval_s);
+      isPractice = false; // keeps timed runs out of the "best practice memorize time" stat
+      progression = { interval_s, clean: false }; // `clean` is written at close
+    }
+
     const seed = newSeed();
     const rng: Rng = makeRng(seed);
     const weight = resolveRunWeight(isPractice);
@@ -94,6 +123,7 @@ export const useTrainStore = create<TrainState>((set, get) => ({
       is_practice: isPractice,
       weight,
       status: 'aborted', // flipped to 'complete' on natural finish
+      ...(progression ? { progression } : {}),
     };
     await repository.createRun(header);
 
@@ -176,7 +206,8 @@ export const useTrainStore = create<TrainState>((set, get) => ({
     if (nextIndex >= s.units.length) {
       // memorize phase complete
       if (s.header.params.quizzed) {
-        set({ memorizeEvents, phase: 'quiz', quizIndex: 0, quizRevealed: false, quizStartedAt: Date.now() });
+        const quizStartedAt = Date.now();
+        set({ memorizeEvents, phase: 'quiz', quizIndex: 0, quizRevealed: false, quizStartedAt, quizUnitShownAt: quizStartedAt });
       } else {
         set({ memorizeEvents });
         await finishRun(set, get);
@@ -210,92 +241,124 @@ export const useTrainStore = create<TrainState>((set, get) => ({
   },
 
   async gradeCurrentQuizCard(outcome) {
+    await gradeQuizCard(set, get, outcome, false);
+  },
+
+  async expireQuizUnit() {
     const s = get();
-    if (s.phase !== 'quiz' || !s.header || s.quizRevealedAt === null) return;
-    const slot = s.quizSlots[s.quizIndex];
-    const committedAt = Date.now();
-    const latencyMs = committedAt - s.quizRevealedAt;
-
-    const { event, sceneEvent, tripletScoringByIndex } = buildQuizEvent({
-      header: s.header,
-      slot,
-      sequenceIndex: s.quizIndex,
-      outcome,
-      revealedAt: s.quizRevealedAt,
-      committedAt,
-      latencyMs,
-      latencyWindow: s.latencyWindow,
-      tripletScoringByIndex: s.tripletScoringByIndex,
-    });
-
-    await repository.appendQuizEvent(event);
-    if (sceneEvent) await repository.appendSceneEvent(sceneEvent);
-
-    let latencyWindow = s.latencyWindow;
-    if (event.scored && event.outcome === 'correct') {
-      latencyWindow = pushLatency(latencyWindow, latencyMs);
-      await repository.setLatencyWindow(latencyWindow);
-    }
-
-    // §8.4 — FSRS scheduling is fed the derived grade for scored events only.
-    if (event.scored) {
-      const key = itemKey(event.card, event.role);
-      const prev = await repository.getFsrsCard(key);
-      const nextState = nextFsrsCardState(prev ?? null, event.fsrs_grade, new Date(committedAt));
-      await repository.setFsrsCard(key, nextState);
-    }
-
-    const quizEvents = [...s.quizEvents, event];
-    const sceneEvents = sceneEvent ? [...s.sceneEvents, sceneEvent] : s.sceneEvents;
-
-    // Auto-collapse: a blank at position 0 grades positions 1-2 as free 'correct', unscored.
-    const autoEvents: QuizEvent[] = [];
-    if (slot.positionInTriplet === 0 && outcome === 'blank') {
-      const triplet = s.quizSlots.filter((sl) => sl.tripletIndex === slot.tripletIndex);
-      for (let p = 1; p <= 2; p++) {
-        const collapsedSlot = triplet[p];
-        if (!collapsedSlot) continue;
-        autoEvents.push({
-          run_id: s.header.id,
-          sequence_index: s.quizIndex + p,
-          triplet_index: slot.tripletIndex!,
-          position_in_triplet: p as 1 | 2,
-          card: collapsedSlot.card,
-          role: collapsedSlot.role,
-          outcome: 'correct',
-          revealed_at: committedAt,
-          committed_at: committedAt,
-          latency_ms: 0,
-          fsrs_grade: 3,
-          scored: false,
-          grading: 'self',
-        });
-      }
-    }
-    for (const ae of autoEvents) await repository.appendQuizEvent(ae);
-
-    const allQuizEvents = [...quizEvents, ...autoEvents];
-    const nextIndex = s.quizIndex + 1 + autoEvents.length;
-
-    set({
-      quizEvents: allQuizEvents,
-      sceneEvents,
-      quizIndex: nextIndex,
-      quizRevealed: false,
-      quizRevealedAt: null,
-      latencyWindow,
-      tripletScoringByIndex,
-    });
-
-    if (nextIndex >= s.quizSlots.length) {
-      await finishRun(set, get);
-    }
+    if (s.phase !== 'quiz' || !s.header?.progression || !isUnitStart(s.quizSlots[s.quizIndex])) return;
+    await gradeQuizCard(set, get, 'blank', true);
   },
 
   reset() {
     set({ ...initialState });
   },
 }));
+
+/**
+ * Grades the current quiz card — by the user's swipe/tap, or (timedOut) by the §X per-triplet timer.
+ * A timeout is a `blank` at position 0, so it takes the ordinary §7.4 path: scene failure, the
+ * triplet collapses, and all three cards are unscored. No separate rule to keep in sync.
+ */
+async function gradeQuizCard(
+  set: (partial: Partial<TrainState>) => void,
+  get: () => TrainState,
+  outcome: Outcome,
+  timedOut: boolean,
+) {
+  if (gradeInFlight) return;
+  gradeInFlight = true;
+  try {
+      const s = get();
+      if (s.phase !== 'quiz' || !s.header) return;
+      // A timed-out card may never have been revealed; a user grade always follows a reveal.
+      if (s.quizRevealedAt === null && !timedOut) return;
+      const slot = s.quizSlots[s.quizIndex];
+      const committedAt = Date.now();
+      const revealedAt = s.quizRevealedAt ?? committedAt;
+      const latencyMs = committedAt - revealedAt;
+
+      const { event, sceneEvent, tripletScoringByIndex } = buildQuizEvent({
+        header: s.header,
+        slot,
+        sequenceIndex: s.quizIndex,
+        outcome,
+        revealedAt,
+        timedOut,
+        committedAt,
+        latencyMs,
+        latencyWindow: s.latencyWindow,
+        tripletScoringByIndex: s.tripletScoringByIndex,
+      });
+
+      await repository.appendQuizEvent(event);
+      if (sceneEvent) await repository.appendSceneEvent(sceneEvent);
+
+      let latencyWindow = s.latencyWindow;
+      if (event.scored && event.outcome === 'correct') {
+        latencyWindow = pushLatency(latencyWindow, latencyMs);
+        await repository.setLatencyWindow(latencyWindow);
+      }
+
+      // §8.4 — FSRS scheduling is fed the derived grade for scored events only.
+      if (event.scored) {
+        const key = itemKey(event.card, event.role);
+        const prev = await repository.getFsrsCard(key);
+        const nextState = nextFsrsCardState(prev ?? null, event.fsrs_grade, new Date(committedAt));
+        await repository.setFsrsCard(key, nextState);
+      }
+
+      const quizEvents = [...s.quizEvents, event];
+      const sceneEvents = sceneEvent ? [...s.sceneEvents, sceneEvent] : s.sceneEvents;
+
+      // Auto-collapse: a blank at position 0 grades positions 1-2 as free 'correct', unscored.
+      const autoEvents: QuizEvent[] = [];
+      if (slot.positionInTriplet === 0 && outcome === 'blank') {
+        const triplet = s.quizSlots.filter((sl) => sl.tripletIndex === slot.tripletIndex);
+        for (let p = 1; p <= 2; p++) {
+          const collapsedSlot = triplet[p];
+          if (!collapsedSlot) continue;
+          autoEvents.push({
+            run_id: s.header.id,
+            sequence_index: s.quizIndex + p,
+            triplet_index: slot.tripletIndex!,
+            position_in_triplet: p as 1 | 2,
+            card: collapsedSlot.card,
+            role: collapsedSlot.role,
+            outcome: 'correct',
+            revealed_at: committedAt,
+            committed_at: committedAt,
+            latency_ms: 0,
+            fsrs_grade: 3,
+            scored: false,
+            grading: 'self',
+          });
+        }
+      }
+      for (const ae of autoEvents) await repository.appendQuizEvent(ae);
+
+      const allQuizEvents = [...quizEvents, ...autoEvents];
+      const nextIndex = s.quizIndex + 1 + autoEvents.length;
+
+      set({
+        quizEvents: allQuizEvents,
+        sceneEvents,
+        quizIndex: nextIndex,
+        quizRevealed: false,
+        quizRevealedAt: null,
+        // §X — the quiz timer covers position 0 only; it restarts when the next unit begins.
+        quizUnitShownAt: isUnitStart(s.quizSlots[nextIndex]) ? Date.now() : null,
+        latencyWindow,
+        tripletScoringByIndex,
+      });
+
+      if (nextIndex >= s.quizSlots.length) {
+        await finishRun(set, get);
+      }
+  } finally {
+    gradeInFlight = false;
+  }
+}
 
 function buildQuizEvent(args: {
   header: RunHeader;
@@ -307,8 +370,9 @@ function buildQuizEvent(args: {
   latencyMs: number;
   latencyWindow: number[];
   tripletScoringByIndex: Map<number, TripletScoring>;
+  timedOut?: boolean;
 }): { event: QuizEvent; sceneEvent: SceneEvent | null; tripletScoringByIndex: Map<number, TripletScoring> } {
-  const { header, slot, sequenceIndex, outcome, revealedAt, committedAt, latencyMs, latencyWindow } = args;
+  const { header, slot, sequenceIndex, outcome, revealedAt, committedAt, latencyMs, latencyWindow, timedOut } = args;
 
   let scored: boolean;
   let sceneEvent: SceneEvent | null = null;
@@ -350,6 +414,7 @@ function buildQuizEvent(args: {
     fsrs_grade: fsrsGrade,
     scored,
     grading: 'self',
+    ...(timedOut ? { timed_out: true as const } : {}),
   };
 
   return { event, sceneEvent, tripletScoringByIndex };
@@ -383,6 +448,19 @@ async function finishRun(set: (partial: Partial<TrainState>) => void, get: () =>
   if (!s.header) return;
   const endedAt = Date.now();
   const rollup = computeRollup(s, endedAt);
-  await repository.closeRun(s.header.id, 'complete', endedAt, rollup);
-  set({ phase: 'summary', summaryRollup: rollup });
+  // §X — `clean` is recomputed from the events here and cached on the header.
+  const progression = s.header.progression
+    ? {
+        interval_s: s.header.progression.interval_s,
+        clean: isCleanRun({ quizEvents: s.quizEvents, sceneEvents: s.sceneEvents, expectedCards: s.quizSlots.length }),
+      }
+    : undefined;
+  await repository.closeRun(s.header.id, 'complete', endedAt, rollup, progression);
+  set({
+    phase: 'summary',
+    summaryRollup: rollup,
+    summaryProgression: progression
+      ? { ...progression, next_interval_s: nextInterval(progression.interval_s, progression.clean) }
+      : null,
+  });
 }

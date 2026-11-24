@@ -4,10 +4,11 @@ import type { RunHeader } from '@domain/events';
 import { computeMemorizeTicks, computeQuizTicks } from '@domain/ribbon';
 import { repository } from '@data/dexieRepository';
 import { RunRibbon } from '@ui/components/RunRibbon';
+import { ProgressionScreen } from './ProgressionScreen';
 import { RecallStatsScreen } from './RecallStatsScreen';
 import { WeakestItemsScreen } from './WeakestItemsScreen';
 
-type Tab = 'runs' | 'weakest' | 'recall';
+type Tab = 'runs' | 'weakest' | 'recall' | 'progression';
 
 export function AnalyzeScreen({ onOpenRun }: { onOpenRun: (runId: string) => void }) {
   const [tab, setTab] = useState<Tab>('runs');
@@ -56,10 +57,12 @@ export function AnalyzeScreen({ onOpenRun }: { onOpenRun: (runId: string) => voi
         <TabButton label="Runs" active={tab === 'runs'} onClick={() => setTab('runs')} />
         <TabButton label="Weakest items" active={tab === 'weakest'} onClick={() => setTab('weakest')} />
         <TabButton label="Recall" active={tab === 'recall'} onClick={() => setTab('recall')} />
+        <TabButton label="Progression" active={tab === 'progression'} onClick={() => setTab('progression')} />
       </div>
       {tab === 'runs' && <RunList onOpenRun={onOpenRun} />}
       {tab === 'weakest' && <WeakestItemsScreen />}
       {tab === 'recall' && <RecallStatsScreen />}
+      {tab === 'progression' && <ProgressionScreen />}
     </div>
   );
 }
@@ -248,6 +251,10 @@ function RunRow({
             <span style={{ fontSize: 14 }}>
               {dateStr} {run.is_practice && <span style={{ color: 'var(--brass)', fontSize: 11 }}>PRACTICE</span>}
               {run.status === 'aborted' && <span style={{ color: 'var(--slate)', fontSize: 11 }}> · ABORTED</span>}
+              {run.progression && (
+                <span style={{ color: 'var(--brass)', fontSize: 11 }}> · PROGRESSION {run.progression.interval_s.toFixed(1)}s</span>
+              )}
+              {run.excluded && <span style={{ color: 'var(--carmine)', fontSize: 11 }}> · BOTCHED</span>}
             </span>
             <span className="mono" style={{ fontSize: 14, color: pct !== null ? 'var(--brass)' : 'var(--slate)' }}>
               {pct !== null ? `${pct}%` : '—'}

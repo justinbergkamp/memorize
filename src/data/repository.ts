@@ -1,4 +1,5 @@
 import type { CardId } from '@domain/cards';
+import type { ProgressionRecord } from '@domain/progression';
 import type { MemorizeEvent, QuizEvent, RunHeader, RunRollup, RunStatus, SceneEvent } from '@domain/events';
 import type { FsrsCardState } from '@domain/fsrsScheduler';
 import type { RecallEvent } from '@domain/recall';
@@ -43,7 +44,15 @@ export interface PaoRepository {
   appendMemorizeEvent(event: MemorizeEvent): Promise<void>;
   appendSceneEvent(event: SceneEvent): Promise<void>;
   appendQuizEvent(event: QuizEvent): Promise<void>;
-  closeRun(runId: string, status: RunStatus, ended_at: number, rollup?: RunRollup): Promise<void>;
+  closeRun(
+    runId: string,
+    status: RunStatus,
+    ended_at: number,
+    rollup?: RunRollup,
+    progression?: ProgressionRecord,
+  ): Promise<void>;
+  /** §X — soft-exclude (or restore) a run. Never touches events. */
+  setRunExcluded(runId: string, excluded: boolean): Promise<void>;
 
   listRuns(): Promise<RunHeader[]>;
   getRun(runId: string): Promise<RunHeader | undefined>;

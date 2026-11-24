@@ -79,3 +79,9 @@ a {
     transition-duration: 0.001ms !important;
   }
 }
+
+/* §X — per-unit countdown bar in Progression / timed runs */
+@keyframes unit-countdown {
+  from { transform: scaleX(1); }
+  to { transform: scaleX(0); }
+}
