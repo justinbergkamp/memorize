@@ -55,9 +55,9 @@ export function TrainRunScreen({ onExit }: { onExit: () => void }) {
   // Countdown bar for whichever timer is running. Keyed on the unit start so each unit restarts it.
   const countdown =
     phase === 'memorize' && header?.params.advance === 'timed' && unitShownAt !== null
-      ? { key: `m${unitShownAt}`, from: unitShownAt, ms: header.params.timed_ms ?? 3000 }
+      ? { key: `m${unitShownAt}`, ms: header.params.timed_ms ?? 3000 }
       : phase === 'quiz' && quizTimerMs !== null && quizUnitShownAt !== null
-        ? { key: `q${quizUnitShownAt}`, from: quizUnitShownAt, ms: quizTimerMs }
+        ? { key: `q${quizUnitShownAt}`, ms: quizTimerMs }
         : null;
 
   const boundedTotal = header && header.params.count !== 'unlimited' ? quizSlots.length : null;
@@ -104,8 +104,9 @@ export function TrainRunScreen({ onExit }: { onExit: () => void }) {
                 height: '100%',
                 background: 'var(--brass)',
                 transformOrigin: 'left',
+                // Don't derive a delay from Date.now() here: this re-renders every 250ms and each
+                // change would shift the running animation forward. The key restarts it per unit.
                 animation: `unit-countdown ${countdown.ms}ms linear forwards`,
-                animationDelay: `${Math.min(0, countdown.from - Date.now())}ms`,
               }}
             />
           )}
