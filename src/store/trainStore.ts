@@ -243,8 +243,8 @@ export const useTrainStore = create<TrainState>((set, get) => ({
 
 /**
  * Grades the current quiz card — by the user's swipe or button tap.
- * A timeout is a `blank` at position 0, so it takes the ordinary §7.4 path: scene failure, the
- * triplet collapses, and all three cards are unscored. No separate rule to keep in sync.
+ * Every card is graded on its own: a blank or wrong card at position 0 costs that one card and
+ * never changes how positions 1-2 are quizzed or scored.
  */
 async function gradeQuizCard(
   set: (partial: Partial<TrainState>) => void,
@@ -294,37 +294,10 @@ async function gradeQuizCard(
       const quizEvents = [...s.quizEvents, event];
       const sceneEvents = sceneEvent ? [...s.sceneEvents, sceneEvent] : s.sceneEvents;
 
-      // Auto-collapse: a blank at position 0 grades positions 1-2 as free 'correct', unscored.
-      const autoEvents: QuizEvent[] = [];
-      if (slot.positionInTriplet === 0 && outcome === 'blank') {
-        const triplet = s.quizSlots.filter((sl) => sl.tripletIndex === slot.tripletIndex);
-        for (let p = 1; p <= 2; p++) {
-          const collapsedSlot = triplet[p];
-          if (!collapsedSlot) continue;
-          autoEvents.push({
-            run_id: s.header.id,
-            sequence_index: s.quizIndex + p,
-            triplet_index: slot.tripletIndex!,
-            position_in_triplet: p as 1 | 2,
-            card: collapsedSlot.card,
-            role: collapsedSlot.role,
-            outcome: 'correct',
-            revealed_at: committedAt,
-            committed_at: committedAt,
-            latency_ms: 0,
-            fsrs_grade: 3,
-            scored: false,
-            grading: 'self',
-          });
-        }
-      }
-      for (const ae of autoEvents) await repository.appendQuizEvent(ae);
-
-      const allQuizEvents = [...quizEvents, ...autoEvents];
-      const nextIndex = s.quizIndex + 1 + autoEvents.length;
+      const nextIndex = s.quizIndex + 1;
 
       set({
-        quizEvents: allQuizEvents,
+        quizEvents,
         sceneEvents,
         quizIndex: nextIndex,
         quizRevealed: false,
@@ -359,7 +332,9 @@ function buildQuizEvent(args: {
   let tripletScoringByIndex = args.tripletScoringByIndex;
 
   if (slot.tripletIndex === null) {
-    scored = true; // lone 52nd card — no scene to contaminate
+    // Lone 52nd card in triplet mode is a real Person retrieval. A single-mode card is plain
+    // card-order recall: its `role: 'P'` is a placeholder, so it must not feed (card, P) difficulty or FSRS.
+    scored = header.params.hand !== 'single';
   } else if (slot.positionInTriplet === 0) {
     const scoring = deriveSceneScoring(outcome);
     tripletScoringByIndex = new Map(tripletScoringByIndex);
@@ -400,12 +375,9 @@ function buildQuizEvent(args: {
 }
 
 function computeRollup(s: TrainState, endedAt: number): RunRollup {
-  // §9.1 harsh definition: a collapsed (unscored) triplet counts as 3 misses, not
-  // the free 'correct' the reveal handed positions 1-2. Uncontaminated events
-  // (wrong_card at position 0, or anything scored:true) count at face value.
-  const n_correct = s.quizEvents.filter((e) => e.scored && e.outcome === 'correct').length;
+  const n_correct = s.quizEvents.filter((e) => e.outcome === 'correct').length;
   const n_wrong_card = s.quizEvents.filter((e) => e.outcome === 'wrong_card').length;
-  const n_blank = s.quizEvents.filter((e) => e.outcome === 'blank' || !e.scored).length;
+  const n_blank = s.quizEvents.filter((e) => e.outcome === 'blank').length;
   const memorize_ms =
     s.memorizeEvents.length > 0
       ? s.memorizeEvents[s.memorizeEvents.length - 1].advanced_at - s.memorizeEvents[0].shown_at

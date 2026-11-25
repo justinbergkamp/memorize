@@ -97,7 +97,7 @@ export function RunDetailScreen({ runId, onBack }: { runId: string; onBack: () =
                       key={c.position_in_triplet}
                       className="mono"
                       style={{
-                        color: !c.scored ? 'var(--slate)' : c.outcome === 'correct' ? 'var(--brass)' : c.outcome === 'wrong_card' ? 'var(--carmine)' : 'var(--slate)',
+                        color: !c.scored && c.triplet_index >= 0 ? 'var(--slate)' : c.outcome === 'correct' ? 'var(--brass)' : c.outcome === 'wrong_card' ? 'var(--carmine)' : 'var(--slate)',
                       }}
                     >
                       {displayCard(c.card)}

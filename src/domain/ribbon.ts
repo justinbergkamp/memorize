@@ -23,9 +23,12 @@ export function computeQuizTicks(total: number, quizEvents: QuizEvent[]): { tick
   for (const ev of sorted) {
     const i = ev.sequence_index;
     if (i < 0 || i >= total) continue;
-    ticks[i] = !ev.scored ? 'blank' : ev.outcome === 'correct' ? 'correct' : ev.outcome === 'wrong_card' ? 'wrong_card' : 'blank';
-    if (!ev.scored && prevScored === false && prevTriplet === ev.triplet_index) mergeWithPrev[i] = true;
-    prevScored = ev.scored;
+    // Only legacy contaminated triplet events (scored: false, triplet_index >= 0) render as blank;
+    // single-mode events are unscored for difficulty but still show their real outcome.
+    const legacyContaminated = !ev.scored && ev.triplet_index >= 0;
+    ticks[i] = legacyContaminated ? 'blank' : ev.outcome === 'correct' ? 'correct' : ev.outcome === 'wrong_card' ? 'wrong_card' : 'blank';
+    if (legacyContaminated && prevScored === false && prevTriplet === ev.triplet_index) mergeWithPrev[i] = true;
+    prevScored = legacyContaminated ? false : true;
     prevTriplet = ev.triplet_index;
   }
   return { ticks, mergeWithPrev };

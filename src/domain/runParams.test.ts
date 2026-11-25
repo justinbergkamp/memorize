@@ -37,9 +37,9 @@ describe('disallowed combinations (§4.2)', () => {
     expect(result.valid).toBe(false);
   });
 
-  it('rejects quizzed + single', () => {
-    const result = validateParamShape({ ...base, hand: 'single' });
-    expect(result.valid).toBe(false);
+  it('accepts quizzed + single', () => {
+    const result = validateParamShape({ ...base, hand: 'single', count: 26 });
+    expect(result.valid).toBe(true);
   });
 
   it('accepts unquizzed + unlimited + single', () => {

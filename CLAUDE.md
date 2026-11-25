@@ -35,17 +35,15 @@ Path aliases: `@domain`, `@data`, `@store`, `@ui` — configured in `vite.config
 
 **Full-deck remainder (§2.4):** For 52 cards in triplet mode there are 17 full triplets (51 cards) plus one lone card presented as a Person (`role: 'P'`, `tripletIndex: null`). This card produces a `QuizEvent` but no `SceneEvent`.
 
-## Contamination rule (§7.4) — load-bearing, do not simplify
+## No contamination (supersedes §7.4)
 
-| Position-0 outcome | Effect |
-|---|---|
-| `blank` | Scene failure. `SceneEvent.retrieved = false`. All three cards in the triplet get `scored: false`. |
-| `wrong_card` | Decode failure. Real attributable miss. All three cards stay `scored: true`. |
-| `correct` | Normal. All three `scored: true`. |
+Every card in a triplet is graded on its own. A `blank` at position 0 is one miss: `SceneEvent.retrieved = false`, but positions 1 and 2 are still quizzed and keep `scored: true`. `wrong_card` at position 0 is likewise just that card. There is no auto-collapse and no free `correct`s.
 
-A `blank` at position 0 collapses the triplet: positions 1 and 2 are auto-graded as `correct` with `scored: false`. This is intentional — the reveal handed the user those cards; the data was never real. The difficulty scorer consumes only `scored: true` events.
+`scored` now means "feeds the `(card, role)` difficulty scorer and FSRS". Legacy runs recorded under the old rule still contain `scored: false` triplet events (blank at position 0 plus auto-graded corrects); display code treats `scored: false` with `triplet_index >= 0` as legacy-collapsed. Single-mode quiz events are `scored: false` (with `triplet_index: -1`) because their `role: 'P'` is a placeholder, not a real Person retrieval.
 
-`wrong_card` at position 0 does NOT contaminate. The scene was retrieved; only the P card decoded wrong.
+## Single-mode quiz
+
+Quizzing is allowed in Single hand mode: cards are quizzed one at a time in memorize order, no scenes. Events are recorded but excluded from difficulty/FSRS (see above).
 
 ## No loci, no hints
 
@@ -63,7 +61,7 @@ The swipe-to-grade gesture is a pure state machine in `@domain/gesture`; `@ui/ho
 
 ## Progression mode (§X)
 
-A Train preset (Triplet / 52 / quizzed / timed) whose per-triplet interval is **derived** from run history in `@domain/progression`, never stored as a counter. Each progression run records `RunHeader.progression = { interval_s, clean }`; `clean` is a cache of `isCleanRun` over the events, written at close. Any `blank` or `wrong_card`, including a contaminated (`scored: false`) triplet, makes a run not clean. The interval times the memorize display only; the quiz is untimed (there is deliberately no quiz timer and no countdown bar — an earlier version auto-graded position 0 `blank` on expiry and silently skipped triplets). `RunHeader.excluded` soft-excludes a "botched" run: kept, but it never moves the interval (aborted runs are skipped too).
+A Train preset (Triplet / 52 / quizzed / timed) whose per-triplet interval is **derived** from run history in `@domain/progression`, never stored as a counter. Each progression run records `RunHeader.progression = { interval_s, clean }`; `clean` is a cache of `isCleanRun` over the events, written at close. Any `blank` or `wrong_card` makes a run not clean. The interval times the memorize display only; the quiz is untimed (there is deliberately no quiz timer and no countdown bar — an earlier version auto-graded position 0 `blank` on expiry and silently skipped triplets). `RunHeader.excluded` soft-excludes a "botched" run: kept, but it never moves the interval (aborted runs are skipped too).
 
 ## Milestones
 

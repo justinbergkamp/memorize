@@ -7,15 +7,13 @@ export type SceneScoring = {
 };
 
 /**
- * §7.4 — the reveal leak. Position 0's outcome determines whether the whole triplet's
- * card events are attributable:
- *   blank      -> scene failure, not attributable to any card. All three unscored.
- *   wrong_card -> decode failure. Scene was retrieved; positions 1-2 are uncontaminated.
- *   correct    -> normal, all three scored.
+ * Position 0's outcome records whether the scene was retrieved, but it never changes how the
+ * other cards are scored. A blank P is one miss; positions 1-2 are quizzed and graded on their
+ * own merits, so every card in a triplet stays attributable.
+ *
+ * (Earlier versions treated a position-0 blank as a collapsed scene and auto-graded the other two
+ * cards as unscored corrects. Runs recorded under that rule still carry `scored: false` events.)
  */
 export function deriveSceneScoring(position0Outcome: Outcome): SceneScoring {
-  if (position0Outcome === 'blank') {
-    return { retrieved: false, scored: [false, false, false] };
-  }
-  return { retrieved: true, scored: [true, true, true] };
+  return { retrieved: position0Outcome !== 'blank', scored: [true, true, true] };
 }

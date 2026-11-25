@@ -46,7 +46,7 @@ function fullRun(patch: Record<number, Partial<QuizEvent>> = {}) {
   return { quizEvents, sceneEvents, expectedCards: 52 };
 }
 
-/** What the store writes when position 0 of triplet `t` is graded blank: pos 0 blank, pos 1-2 free unscored corrects. */
+/** Position 0 of triplet `t` graded blank; positions 1-2 are graded independently (here, correct). */
 function collapsedTriplet(t: number) {
   const scoring = deriveSceneScoring('blank');
   return {
@@ -95,12 +95,12 @@ describe('isCleanRun', () => {
     expect(isCleanRun(fullRun({ 30: { outcome: 'wrong_card', scored: true } }))).toBe(false);
   });
 
-  it('a contaminated triplet breaks it: positions 1-2 are free corrects but unscored', () => {
+  it('a blank at position 0 breaks it; positions 1-2 are graded on their own', () => {
     const c = collapsedTriplet(4);
     const run = fullRun(c.quiz);
     run.sceneEvents[4] = scene(4, c.scene.retrieved);
-    // Only position 0 is a blank here; 1 and 2 read as 'correct'. The run must still be not clean.
-    expect(run.quizEvents[13].outcome).toBe('correct');
+    expect(run.quizEvents[12].outcome).toBe('blank');
+    expect(run.quizEvents[13].scored).toBe(true);
     expect(isCleanRun(run)).toBe(false);
   });
 

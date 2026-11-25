@@ -50,9 +50,6 @@ export function validateParamShape(params: RunParams): ValidationResult {
   if (params.quizzed && params.count === 'unlimited') {
     return { valid: false, reason: 'Quizzed runs need a bounded count — there is no unbounded quiz set.' };
   }
-  if (params.quizzed && params.hand === 'single') {
-    return { valid: false, reason: 'Quiz tests in-order scene recall, which requires triplets.' };
-  }
   if (params.advance === 'timed' && !params.timed_ms) {
     return { valid: false, reason: 'Timed advance needs an interval.' };
   }
