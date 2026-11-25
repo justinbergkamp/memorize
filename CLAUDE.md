@@ -63,7 +63,7 @@ The swipe-to-grade gesture is a pure state machine in `@domain/gesture`; `@ui/ho
 
 ## Progression mode (§X)
 
-A Train preset (Triplet / 52 / quizzed / timed) whose per-triplet interval is **derived** from run history in `@domain/progression`, never stored as a counter. Each progression run records `RunHeader.progression = { interval_s, clean }`; `clean` is a cache of `isCleanRun` over the events, written at close. Any `blank` or `wrong_card`, including a contaminated (`scored: false`) triplet or a timer expiry, makes a run not clean. The same interval times the memorize display and the quiz: if position 0 of a triplet is not graded in time it is auto-graded `blank` (`QuizEvent.timed_out`) and takes the ordinary §7.4 collapse path. `RunHeader.excluded` soft-excludes a "botched" run: kept, but it never moves the interval (aborted runs are skipped too).
+A Train preset (Triplet / 52 / quizzed / timed) whose per-triplet interval is **derived** from run history in `@domain/progression`, never stored as a counter. Each progression run records `RunHeader.progression = { interval_s, clean }`; `clean` is a cache of `isCleanRun` over the events, written at close. Any `blank` or `wrong_card`, including a contaminated (`scored: false`) triplet, makes a run not clean. The interval times the memorize display only; the quiz is untimed (there is deliberately no quiz timer and no countdown bar — an earlier version auto-graded position 0 `blank` on expiry and silently skipped triplets). `RunHeader.excluded` soft-excludes a "botched" run: kept, but it never moves the interval (aborted runs are skipped too).
 
 ## Milestones
 

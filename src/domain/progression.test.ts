@@ -11,7 +11,6 @@ import {
   nextInterval,
   progressionHistory,
   progressionParams,
-  remainingMs,
   type ProgressionRunInput,
 } from './progression';
 import { validateParamShape } from './runParams';
@@ -112,12 +111,6 @@ describe('isCleanRun', () => {
     const sceneOnly = fullRun();
     sceneOnly.sceneEvents[4] = scene(4, false);
     expect(isCleanRun(sceneOnly)).toBe(false);
-  });
-
-  it('a timer expiry (recorded as a blank at position 0 plus the collapse) is not clean', () => {
-    const c = collapsedTriplet(0);
-    const run = fullRun({ ...c.quiz, 0: { ...c.quiz[0], revealed_at: 5, committed_at: 5 } });
-    expect(isCleanRun(run)).toBe(false);
   });
 
   it('a run with missing events is not clean by omission', () => {
@@ -267,20 +260,12 @@ describe('progressionHistory', () => {
   });
 });
 
-// ---- params / timer -------------------------------------------------------------------------
+// ---- params -------------------------------------------------------------------------
 
 describe('progressionParams', () => {
   it('is Triplet / 52 / quizzed / timed, with the interval in ms, and passes shape validation', () => {
     const p = progressionParams(14.5);
     expect(p).toEqual({ set: 'full', hand: 'triplet', advance: 'timed', timed_ms: 14500, count: 52, quizzed: true });
     expect(validateParamShape(p)).toEqual({ valid: true });
-  });
-});
-
-describe('remainingMs', () => {
-  it('counts down and floors at zero', () => {
-    expect(remainingMs(1000, 15000, 1000)).toBe(15000);
-    expect(remainingMs(1000, 15000, 6000)).toBe(10000);
-    expect(remainingMs(1000, 15000, 99999)).toBe(0);
   });
 });

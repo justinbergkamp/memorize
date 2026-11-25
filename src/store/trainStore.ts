@@ -44,7 +44,6 @@ type TrainState = {
   quizRevealed: boolean;
   quizRevealedAt: number | null;
   /** §X — when the current unit (triplet or lone card) appeared; null once position 0 is graded. Drives the quiz timer. */
-  quizUnitShownAt: number | null;
   sceneEvents: SceneEvent[];
   quizEvents: QuizEvent[];
   tripletScoringByIndex: Map<number, TripletScoring>;
@@ -61,7 +60,6 @@ type TrainState = {
   revealCurrentQuizCard: () => void;
   gradeCurrentQuizCard: (outcome: Outcome) => Promise<void>;
   /** §X — the per-triplet timer ran out before position 0 was graded: the whole triplet counts as blank. */
-  expireQuizUnit: () => Promise<void>;
   reset: () => void;
 };
 
@@ -80,7 +78,6 @@ const initialState = {
   quizIndex: 0,
   quizRevealed: false,
   quizRevealedAt: null as number | null,
-  quizUnitShownAt: null as number | null,
   sceneEvents: [] as SceneEvent[],
   quizEvents: [] as QuizEvent[],
   tripletScoringByIndex: new Map<number, TripletScoring>(),
@@ -89,12 +86,7 @@ const initialState = {
   summaryProgression: null as { interval_s: number; clean: boolean; next_interval_s: number } | null,
 };
 
-/** A unit starts at triplet position 0, or is a lone card with no triplet (§2.4). */
-function isUnitStart(slot: Slot | undefined): boolean {
-  return !!slot && (slot.positionInTriplet === 0 || slot.tripletIndex === null);
-}
-
-/** Serializes grading: a swipe, a button tap and a timer expiry must never grade the same card twice. */
+/** Serializes grading: a swipe and a button tap must never grade the same card twice. */
 let gradeInFlight = false;
 
 export const useTrainStore = create<TrainState>((set, get) => ({
@@ -207,7 +199,7 @@ export const useTrainStore = create<TrainState>((set, get) => ({
       // memorize phase complete
       if (s.header.params.quizzed) {
         const quizStartedAt = Date.now();
-        set({ memorizeEvents, phase: 'quiz', quizIndex: 0, quizRevealed: false, quizStartedAt, quizUnitShownAt: quizStartedAt });
+        set({ memorizeEvents, phase: 'quiz', quizIndex: 0, quizRevealed: false, quizStartedAt });
       } else {
         set({ memorizeEvents });
         await finishRun(set, get);
@@ -241,13 +233,7 @@ export const useTrainStore = create<TrainState>((set, get) => ({
   },
 
   async gradeCurrentQuizCard(outcome) {
-    await gradeQuizCard(set, get, outcome, false);
-  },
-
-  async expireQuizUnit() {
-    const s = get();
-    if (s.phase !== 'quiz' || !s.header?.progression || !isUnitStart(s.quizSlots[s.quizIndex])) return;
-    await gradeQuizCard(set, get, 'blank', true);
+    await gradeQuizCard(set, get, outcome);
   },
 
   reset() {
@@ -256,7 +242,7 @@ export const useTrainStore = create<TrainState>((set, get) => ({
 }));
 
 /**
- * Grades the current quiz card — by the user's swipe/tap, or (timedOut) by the §X per-triplet timer.
+ * Grades the current quiz card — by the user's swipe or button tap.
  * A timeout is a `blank` at position 0, so it takes the ordinary §7.4 path: scene failure, the
  * triplet collapses, and all three cards are unscored. No separate rule to keep in sync.
  */
@@ -264,18 +250,16 @@ async function gradeQuizCard(
   set: (partial: Partial<TrainState>) => void,
   get: () => TrainState,
   outcome: Outcome,
-  timedOut: boolean,
 ) {
   if (gradeInFlight) return;
   gradeInFlight = true;
   try {
       const s = get();
       if (s.phase !== 'quiz' || !s.header) return;
-      // A timed-out card may never have been revealed; a user grade always follows a reveal.
-      if (s.quizRevealedAt === null && !timedOut) return;
+      if (s.quizRevealedAt === null) return;
       const slot = s.quizSlots[s.quizIndex];
       const committedAt = Date.now();
-      const revealedAt = s.quizRevealedAt ?? committedAt;
+      const revealedAt = s.quizRevealedAt;
       const latencyMs = committedAt - revealedAt;
 
       const { event, sceneEvent, tripletScoringByIndex } = buildQuizEvent({
@@ -284,7 +268,6 @@ async function gradeQuizCard(
         sequenceIndex: s.quizIndex,
         outcome,
         revealedAt,
-        timedOut,
         committedAt,
         latencyMs,
         latencyWindow: s.latencyWindow,
@@ -346,8 +329,6 @@ async function gradeQuizCard(
         quizIndex: nextIndex,
         quizRevealed: false,
         quizRevealedAt: null,
-        // §X — the quiz timer covers position 0 only; it restarts when the next unit begins.
-        quizUnitShownAt: isUnitStart(s.quizSlots[nextIndex]) ? Date.now() : null,
         latencyWindow,
         tripletScoringByIndex,
       });
@@ -370,9 +351,8 @@ function buildQuizEvent(args: {
   latencyMs: number;
   latencyWindow: number[];
   tripletScoringByIndex: Map<number, TripletScoring>;
-  timedOut?: boolean;
 }): { event: QuizEvent; sceneEvent: SceneEvent | null; tripletScoringByIndex: Map<number, TripletScoring> } {
-  const { header, slot, sequenceIndex, outcome, revealedAt, committedAt, latencyMs, latencyWindow, timedOut } = args;
+  const { header, slot, sequenceIndex, outcome, revealedAt, committedAt, latencyMs, latencyWindow } = args;
 
   let scored: boolean;
   let sceneEvent: SceneEvent | null = null;
@@ -414,7 +394,6 @@ function buildQuizEvent(args: {
     fsrs_grade: fsrsGrade,
     scored,
     grading: 'self',
-    ...(timedOut ? { timed_out: true as const } : {}),
   };
 
   return { event, sceneEvent, tripletScoringByIndex };

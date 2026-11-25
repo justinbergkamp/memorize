@@ -5,7 +5,7 @@ import type { RunParams } from './runParams';
  * §X Progression mode — a Train preset whose per-triplet interval shrinks as runs come back clean.
  *
  * The interval is *derived*, never stored as a counter: it is a pure function of run history, so
- * soft-excluding a run (or deleting one) just re-derives it. Each progression run records
+ * soft-excluding a run (or deleting one) just re-derives it. The interval times the memorize display only; recall is untimed. Each progression run records
  * `progression: { interval_s, clean }` on its RunHeader; `clean` is a cache of `isCleanRun` over
  * that run's events, written once at close.
  */
@@ -32,8 +32,7 @@ export function progressionParams(interval_s: number): RunParams {
 /**
  * A run is clean only if every card was recalled: zero `blank` or `wrong_card` anywhere. That
  * includes a contaminated (`scored: false`) triplet — its position 0 is a `blank`, and positions
- * 1-2 are free `correct`s the reveal handed over, so they must not rescue the run. A timer
- * expiry is recorded as a `blank` and so also breaks cleanliness.
+ * 1-2 are free `correct`s the reveal handed over, so they must not rescue the run.
  *
  * `expectedCards` guards against a run with missing events looking clean by omission.
  */
@@ -102,11 +101,6 @@ export function progressionHistory(runs: ProgressionRunInput[]): ProgressionPoin
       clean: r.progression!.clean,
       excluded: !!r.excluded,
     }));
-}
-
-/** Time left on a unit's timer, floored at 0. Used for both memorize display and the quiz position-0 deadline. */
-export function remainingMs(shownAt: number, intervalMs: number, now: number): number {
-  return Math.max(0, shownAt + intervalMs - now);
 }
 
 function roundS(s: number): number {

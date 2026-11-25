@@ -14,7 +14,7 @@ const ROLE_LABEL = { P: 'Person', A: 'Action', O: 'Object' } as const;
 
 export function TrainRunScreen({ onExit }: { onExit: () => void }) {
   const state = useTrainStore();
-  const { phase, header, currentUnit, quizSlots, quizIndex, quizRevealed, quizEvents, quizUnitShownAt, unitShownAt } = state;
+  const { phase, header, currentUnit, quizSlots, quizIndex, quizRevealed, quizEvents } = state;
   const entries = useConfigStore((s) => s.entries);
   const [now, setNow] = useState(Date.now());
 
@@ -41,24 +41,6 @@ export function TrainRunScreen({ onExit }: { onExit: () => void }) {
     const id = setTimeout(() => useTrainStore.getState().advanceMemorize(), ms);
     return () => clearTimeout(id);
   }, [phase, header, currentUnit]);
-
-  // §X — Progression quiz timer: position 0 of each triplet (or the lone card) must be graded within
-  // the interval, or the whole triplet counts as blank. `quizUnitShownAt` is null once position 0 is graded.
-  const quizTimerMs = header?.progression ? header.params.timed_ms ?? null : null;
-  useEffect(() => {
-    if (phase !== 'quiz' || quizTimerMs === null || quizUnitShownAt === null) return;
-    const left = Math.max(0, quizUnitShownAt + quizTimerMs - Date.now());
-    const id = setTimeout(() => useTrainStore.getState().expireQuizUnit(), left);
-    return () => clearTimeout(id);
-  }, [phase, quizTimerMs, quizUnitShownAt]);
-
-  // Countdown bar for whichever timer is running. Keyed on the unit start so each unit restarts it.
-  const countdown =
-    phase === 'memorize' && header?.params.advance === 'timed' && unitShownAt !== null
-      ? { key: `m${unitShownAt}`, ms: header.params.timed_ms ?? 3000 }
-      : phase === 'quiz' && quizTimerMs !== null && quizUnitShownAt !== null
-        ? { key: `q${quizUnitShownAt}`, ms: quizTimerMs }
-        : null;
 
   const boundedTotal = header && header.params.count !== 'unlimited' ? quizSlots.length : null;
 
@@ -96,21 +78,6 @@ export function TrainRunScreen({ onExit }: { onExit: () => void }) {
         ) : (
           <div style={{ height: 4 }} />
         )}
-        <div style={{ height: 3, marginTop: 6, background: 'rgba(239,231,214,0.08)', borderRadius: 2, overflow: 'hidden' }}>
-          {countdown && (
-            <div
-              key={countdown.key}
-              style={{
-                height: '100%',
-                background: 'var(--brass)',
-                transformOrigin: 'left',
-                // Don't derive a delay from Date.now() here: this re-renders every 250ms and each
-                // change would shift the running animation forward. The key restarts it per unit.
-                animation: `unit-countdown ${countdown.ms}ms linear forwards`,
-              }}
-            />
-          )}
-        </div>
         <div
           className="mono"
           style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 8, fontSize: 13, color: 'var(--slate)' }}

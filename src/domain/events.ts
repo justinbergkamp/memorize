@@ -67,5 +67,4 @@ export type QuizEvent = {
   fsrs_grade: 1 | 2 | 3 | 4; // derived, stored (§7.3)
   scored: boolean; // false when contaminated (§7.4)
   grading: 'self'; // reserved for a future 'entered' mode
-  timed_out?: true; // §X — graded blank by the per-triplet timer, not by the user
 };
